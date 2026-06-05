@@ -84,7 +84,7 @@ export default async function handler(req, res) {
   if (req.method === 'OPTIONS') return res.status(200).end();
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
 
-  const apiKey = process.env.ANTHROPIC_API_KEY;
+  const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {
     return res.status(500).json({
       reply: 'Service temporarily unavailable. Please reach out at akshaj.shah@tamu.edu.'
@@ -99,36 +99,49 @@ export default async function handler(req, res) {
 
     const trimmed = messages.slice(-20);
 
-    const response = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': apiKey,
-        'anthropic-version': '2023-06-01'
-      },
-      body: JSON.stringify({
-        model: 'claude-sonnet-4-20250514',
-        max_tokens: 1024,
-        system: PROFILE,
-        messages: trimmed
-      })
-    });
+    // Convert messages to Gemini's "contents" format
+    // Gemini uses "user" and "model" roles (not "assistant")
+    const contents = trimmed.map(m => ({
+      role: m.role === 'assistant' ? 'model' : 'user',
+      parts: [{ text: m.content }]
+    }));
+
+    const response = await fetch(
+      'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent',
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-goog-api-key': apiKey
+        },
+        body: JSON.stringify({
+          systemInstruction: {
+            parts: [{ text: PROFILE }]
+          },
+          contents: contents,
+          generationConfig: {
+            temperature: 0.7,
+            maxOutputTokens: 1024
+          }
+        })
+      }
+    );
 
     if (!response.ok) {
+      const errText = await response.text();
+      console.error('Gemini API error:', errText);
       return res.status(500).json({
         reply: 'Connection issue. Please reach out at akshaj.shah@tamu.edu.'
       });
     }
 
     const data = await response.json();
-    const reply = (data.content || [])
-      .filter(b => b.type === 'text')
-      .map(b => b.text)
-      .join('\n')
-      .trim();
+    const reply = data?.candidates?.[0]?.content?.parts?.[0]?.text?.trim()
+      || 'Could not generate a response. Please reach out at akshaj.shah@tamu.edu.';
 
     return res.status(200).json({ reply });
   } catch (err) {
+    console.error('Handler error:', err);
     return res.status(500).json({
       reply: 'Hit a technical issue. Please reach out at akshaj.shah@tamu.edu.'
     });
