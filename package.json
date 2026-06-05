@@ -1,0 +1,11 @@
+{
+  "name": "akshaj-shah",
+  "version": "1.0.0",
+  "description": "Interactive conversational interface for Akshaj Shah's portfolio.",
+  "private": true,
+  "author": "Akshaj Shah <akshaj.shah@tamu.edu>",
+  "license": "MIT",
+  "engines": {
+    "node": ">=18"
+  }
+}

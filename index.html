@@ -1,0 +1,467 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Akshaj Shah</title>
+  <meta name="description" content="Akshaj Shah — AI Engineer. Interactive interview interface." />
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      min-height: 100vh;
+      background: #0a0a0f;
+      font-family: 'JetBrains Mono', 'Courier New', monospace;
+      color: #e8e8ec;
+      overflow-x: hidden;
+    }
+    #app {
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      position: relative;
+    }
+    .grid-bg {
+      position: fixed;
+      inset: 0;
+      background-image:
+        linear-gradient(rgba(255,255,255,0.02) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255,255,255,0.02) 1px, transparent 1px);
+      background-size: 40px 40px;
+      pointer-events: none;
+    }
+    .glow {
+      position: fixed;
+      top: -10%;
+      left: 20%;
+      width: 60%;
+      height: 60%;
+      background: radial-gradient(circle, rgba(94,234,212,0.08) 0%, transparent 70%);
+      pointer-events: none;
+      filter: blur(60px);
+    }
+    .header {
+      position: relative;
+      padding: 20px 24px 16px;
+      border-bottom: 1px solid rgba(255,255,255,0.08);
+      background: rgba(10,10,15,0.8);
+      backdrop-filter: blur(20px);
+      z-index: 10;
+    }
+    .header-inner {
+      max-width: 720px;
+      margin: 0 auto;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .status {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 4px;
+    }
+    .dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #5eead4;
+      box-shadow: 0 0 12px rgba(94,234,212,0.6);
+      animation: pulse 2s infinite;
+    }
+    .tag {
+      font-size: 10px;
+      letter-spacing: 0.2em;
+      color: #5eead4;
+      text-transform: uppercase;
+      font-weight: 600;
+    }
+    h1 {
+      font-size: 20px;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+    }
+    h1 .accent { color: #5eead4; }
+    .subtitle {
+      font-size: 11px;
+      opacity: 0.5;
+      margin-top: 4px;
+      letter-spacing: 0.05em;
+    }
+    .info-btn {
+      background: rgba(94,234,212,0.1);
+      border: 1px solid rgba(94,234,212,0.3);
+      color: #5eead4;
+      padding: 6px 12px;
+      border-radius: 4px;
+      font-size: 10px;
+      cursor: pointer;
+      font-family: inherit;
+      letter-spacing: 0.1em;
+    }
+    .info-panel {
+      margin-top: 16px;
+      padding: 12px;
+      background: rgba(94,234,212,0.05);
+      border: 1px solid rgba(94,234,212,0.15);
+      border-radius: 4px;
+      font-size: 11px;
+      line-height: 1.7;
+      opacity: 0.85;
+      display: none;
+      max-width: 720px;
+      margin-left: auto;
+      margin-right: auto;
+    }
+    .info-panel.show { display: block; }
+    .info-label {
+      color: #5eead4;
+      margin-bottom: 6px;
+      font-weight: 600;
+    }
+    .chat-area {
+      flex: 1;
+      overflow: auto;
+      padding: 20px 24px;
+      position: relative;
+      z-index: 5;
+    }
+    .chat-inner {
+      max-width: 720px;
+      margin: 0 auto;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+    .msg-system {
+      padding: 10px 14px;
+      background: rgba(94,234,212,0.06);
+      border-left: 2px solid #5eead4;
+      font-size: 12px;
+      opacity: 0.85;
+      border-radius: 2px;
+    }
+    .msg-wrap { display: flex; }
+    .msg-wrap.user { justify-content: flex-end; }
+    .msg-wrap.assistant { justify-content: flex-start; }
+    .msg {
+      max-width: 85%;
+      padding: 12px 16px;
+      border-radius: 4px;
+      font-size: 13px;
+      line-height: 1.6;
+      white-space: pre-wrap;
+      word-wrap: break-word;
+    }
+    .msg.user {
+      background: rgba(94,234,212,0.12);
+      border: 1px solid rgba(94,234,212,0.25);
+    }
+    .msg.assistant {
+      background: rgba(255,255,255,0.04);
+      border: 1px solid rgba(255,255,255,0.08);
+    }
+    .msg-label {
+      font-size: 9px;
+      letter-spacing: 0.15em;
+      opacity: 0.5;
+      margin-bottom: 6px;
+    }
+    .msg.user .msg-label { color: #5eead4; }
+    .msg.assistant .msg-label { color: #a3a3a3; }
+    .typing {
+      display: flex;
+      gap: 6px;
+      padding: 12px 16px;
+      align-items: center;
+    }
+    .typing-label {
+      font-size: 9px;
+      letter-spacing: 0.15em;
+      opacity: 0.5;
+      color: #a3a3a3;
+    }
+    .typing-dots { display: flex; gap: 4px; }
+    .typing-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: #5eead4;
+      animation: blink 1.4s infinite;
+    }
+    .typing-dot:nth-child(2) { animation-delay: 0.2s; }
+    .typing-dot:nth-child(3) { animation-delay: 0.4s; }
+    .suggestions {
+      padding: 0 24px 12px;
+      position: relative;
+      z-index: 5;
+    }
+    .suggestions-inner {
+      max-width: 720px;
+      margin: 0 auto;
+    }
+    .suggestions-label {
+      font-size: 10px;
+      letter-spacing: 0.15em;
+      opacity: 0.5;
+      margin-bottom: 8px;
+    }
+    .suggestions-row {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .suggestion-btn {
+      background: rgba(255,255,255,0.04);
+      border: 1px solid rgba(255,255,255,0.1);
+      color: #e8e8ec;
+      padding: 6px 10px;
+      border-radius: 3px;
+      font-size: 11px;
+      cursor: pointer;
+      font-family: inherit;
+      transition: all 0.15s;
+    }
+    .suggestion-btn:hover {
+      background: rgba(94,234,212,0.08);
+      border-color: rgba(94,234,212,0.3);
+    }
+    .input-area {
+      padding: 16px 24px 20px;
+      border-top: 1px solid rgba(255,255,255,0.08);
+      background: rgba(10,10,15,0.8);
+      backdrop-filter: blur(20px);
+      position: relative;
+      z-index: 10;
+    }
+    .input-inner {
+      max-width: 720px;
+      margin: 0 auto;
+      display: flex;
+      gap: 8px;
+    }
+    .prompt-marker {
+      display: flex;
+      align-items: center;
+      padding: 0 12px;
+      color: #5eead4;
+      font-size: 14px;
+    }
+    textarea {
+      flex: 1;
+      background: rgba(255,255,255,0.04);
+      border: 1px solid rgba(255,255,255,0.1);
+      border-radius: 4px;
+      padding: 10px 14px;
+      color: #e8e8ec;
+      font-size: 13px;
+      font-family: inherit;
+      outline: none;
+      resize: none;
+      line-height: 1.5;
+    }
+    textarea::placeholder { color: rgba(255,255,255,0.3); }
+    textarea:focus { border-color: rgba(94,234,212,0.4); }
+    .send-btn {
+      background: #5eead4;
+      color: #0a0a0f;
+      border: none;
+      padding: 0 20px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.1em;
+      font-family: inherit;
+      transition: all 0.15s;
+    }
+    .send-btn:disabled {
+      background: rgba(94,234,212,0.2);
+      color: rgba(94,234,212,0.5);
+      cursor: not-allowed;
+    }
+    .footer-note {
+      max-width: 720px;
+      margin: 8px auto 0;
+      font-size: 10px;
+      opacity: 0.35;
+      letter-spacing: 0.05em;
+      text-align: center;
+    }
+    @keyframes pulse {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.6; transform: scale(0.95); }
+    }
+    @keyframes blink {
+      0%, 80%, 100% { opacity: 0.3; }
+      40% { opacity: 1; }
+    }
+  </style>
+</head>
+<body>
+  <div id="app">
+    <div class="grid-bg"></div>
+    <div class="glow"></div>
+
+    <div class="header">
+      <div class="header-inner">
+        <div>
+          <div class="status">
+            <div class="dot"></div>
+            <span class="tag">LIVE</span>
+          </div>
+          <h1>akshaj<span class="accent">.shah</span></h1>
+          <p class="subtitle">interactive interview interface</p>
+        </div>
+        <button class="info-btn" id="infoBtn">[ INFO ]</button>
+      </div>
+      <div class="info-panel" id="infoPanel">
+        <div class="info-label">// ABOUT</div>
+        <div>Conversational interface grounded in Akshaj's verified work history.</div>
+        <div>Ask about projects, skills, experience, or anything in his background.</div>
+        <div>For direct contact: akshaj.shah@tamu.edu</div>
+      </div>
+    </div>
+
+    <div class="chat-area" id="chatArea">
+      <div class="chat-inner" id="chatInner">
+        <div class="msg-system">Hi — this is an interactive way to learn about Akshaj Shah's background. Ask anything about his projects, experience, or skills.</div>
+        <div class="msg-system">Currently a graduate student at Texas A&M and former ML Engineer at Quantiphi (Google Cloud partner). Building AI systems at the intersection of engineering and business operations.</div>
+      </div>
+    </div>
+
+    <div class="suggestions" id="suggestions">
+      <div class="suggestions-inner">
+        <div class="suggestions-label">// SUGGESTED</div>
+        <div class="suggestions-row">
+          <button class="suggestion-btn" data-q="What's your most impressive project?">What's your most impressive project?</button>
+          <button class="suggestion-btn" data-q="Tell me about your MCP work">Tell me about your MCP work</button>
+          <button class="suggestion-btn" data-q="Walk me through your RAG pipeline experience">Walk me through your RAG pipeline experience</button>
+          <button class="suggestion-btn" data-q="What makes you stand out?">What makes you stand out?</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="input-area">
+      <div class="input-inner">
+        <div class="prompt-marker">&gt;</div>
+        <textarea id="inputBox" placeholder="Ask anything..." rows="1"></textarea>
+        <button class="send-btn" id="sendBtn">SEND</button>
+      </div>
+      <div class="footer-note">akshaj.shah@tamu.edu · +1 (979) 574-8398 · linkedin.com/in/akshajs</div>
+    </div>
+  </div>
+
+  <script>
+    const messages = [];
+    const chatInner = document.getElementById('chatInner');
+    const chatArea = document.getElementById('chatArea');
+    const inputBox = document.getElementById('inputBox');
+    const sendBtn = document.getElementById('sendBtn');
+    const suggestions = document.getElementById('suggestions');
+    const infoBtn = document.getElementById('infoBtn');
+    const infoPanel = document.getElementById('infoPanel');
+    let isThinking = false;
+
+    infoBtn.addEventListener('click', () => {
+      infoPanel.classList.toggle('show');
+      infoBtn.textContent = infoPanel.classList.contains('show') ? '[ HIDE ]' : '[ INFO ]';
+    });
+
+    document.querySelectorAll('.suggestion-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        inputBox.value = btn.getAttribute('data-q');
+        inputBox.focus();
+      });
+    });
+
+    function addMessage(role, content) {
+      const wrap = document.createElement('div');
+      wrap.className = `msg-wrap ${role}`;
+      const msg = document.createElement('div');
+      msg.className = `msg ${role}`;
+      const label = document.createElement('div');
+      label.className = 'msg-label';
+      label.textContent = role === 'user' ? '// YOU' : '// AKSHAJ';
+      msg.appendChild(label);
+      const text = document.createElement('div');
+      text.textContent = content;
+      msg.appendChild(text);
+      wrap.appendChild(msg);
+      chatInner.appendChild(wrap);
+      chatArea.scrollTop = chatArea.scrollHeight;
+      return text;
+    }
+
+    function showTyping() {
+      const wrap = document.createElement('div');
+      wrap.className = 'typing';
+      wrap.id = 'typingIndicator';
+      wrap.innerHTML = `
+        <div class="typing-label">// AKSHAJ</div>
+        <div class="typing-dots">
+          <div class="typing-dot"></div>
+          <div class="typing-dot"></div>
+          <div class="typing-dot"></div>
+        </div>
+      `;
+      chatInner.appendChild(wrap);
+      chatArea.scrollTop = chatArea.scrollHeight;
+    }
+
+    function hideTyping() {
+      const el = document.getElementById('typingIndicator');
+      if (el) el.remove();
+    }
+
+    async function sendMessage() {
+      const text = inputBox.value.trim();
+      if (!text || isThinking) return;
+
+      inputBox.value = '';
+      isThinking = true;
+      sendBtn.disabled = true;
+      suggestions.style.display = 'none';
+
+      messages.push({ role: 'user', content: text });
+      addMessage('user', text);
+      showTyping();
+
+      try {
+        const response = await fetch('/api/chat', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ messages })
+        });
+
+        if (!response.ok) throw new Error('API error');
+        const data = await response.json();
+        const reply = data.reply || 'Connection issue. Reach out directly at akshaj.shah@tamu.edu.';
+
+        hideTyping();
+        messages.push({ role: 'assistant', content: reply });
+        addMessage('assistant', reply);
+      } catch (err) {
+        hideTyping();
+        const errMsg = 'Connection issue. Please reach out directly at akshaj.shah@tamu.edu or +1 (979) 574-8398.';
+        messages.push({ role: 'assistant', content: errMsg });
+        addMessage('assistant', errMsg);
+      } finally {
+        isThinking = false;
+        sendBtn.disabled = false;
+        inputBox.focus();
+      }
+    }
+
+    sendBtn.addEventListener('click', sendMessage);
+    inputBox.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        sendMessage();
+      }
+    });
+  </script>
+</body>
+</html>
