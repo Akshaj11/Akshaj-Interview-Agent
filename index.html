@@ -298,6 +298,33 @@
       0%, 80%, 100% { opacity: 0.3; }
       40% { opacity: 1; }
     }
+    /* ===== video avatar (added) ===== */
+    .avatar-area { position: relative; z-index: 6; padding: 14px 24px 0; }
+    .avatar-inner {
+      max-width: 720px;
+      margin: 0 auto;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 10px;
+    }
+    .avatar-video {
+      width: 240px;
+      height: 240px;
+      border-radius: 8px;
+      background: #000;
+      border: 1px solid rgba(94,234,212,0.25);
+      object-fit: cover;
+      display: none;
+      box-shadow: 0 0 24px rgba(94,234,212,0.12);
+    }
+    .avatar-video.show { display: block; }
+    .avatar-status {
+      font-size: 10px;
+      letter-spacing: 0.15em;
+      opacity: 0.6;
+      color: #5eead4;
+    }
   </style>
 </head>
 <body>
@@ -322,6 +349,14 @@
         <div>Conversational interface grounded in Akshaj's verified work history.</div>
         <div>Ask about projects, skills, experience, or anything in his background.</div>
         <div>For direct contact: akshaj.shah@tamu.edu</div>
+      </div>
+    </div>
+
+    <div class="avatar-area">
+      <div class="avatar-inner">
+        <video class="avatar-video" id="avatarVideo" autoplay playsinline></video>
+        <button class="info-btn" id="startAvatar">[ START VIDEO AGENT ]</button>
+        <div class="avatar-status" id="avatarStatus"></div>
       </div>
     </div>
 
@@ -364,6 +399,20 @@
     const infoBtn = document.getElementById('infoBtn');
     const infoPanel = document.getElementById('infoPanel');
     let isThinking = false;
+
+    // ===== per-visitor cap (client-side) =====
+    const MAX_MESSAGES = 2;
+    const msgCount = () => parseInt(localStorage.getItem('akshaj_msgs') || '0', 10);
+    const bumpMsg = () => localStorage.setItem('akshaj_msgs', msgCount() + 1);
+    const atLimit = () => msgCount() >= MAX_MESSAGES;
+    function enforceLimitUI() {
+      if (atLimit()) {
+        inputBox.disabled = true;
+        sendBtn.disabled = true;
+        inputBox.placeholder = 'Demo limit reached — contact akshaj.shah@tamu.edu';
+        suggestions.style.display = 'none';
+      }
+    }
 
     infoBtn.addEventListener('click', () => {
       infoPanel.classList.toggle('show');
@@ -420,6 +469,13 @@
       const text = inputBox.value.trim();
       if (!text || isThinking) return;
 
+      // Per-visitor cap: stop after MAX_MESSAGES.
+      if (atLimit()) {
+        addMessage('assistant', "You've reached the demo limit. Reach Akshaj directly at akshaj.shah@tamu.edu.");
+        enforceLimitUI();
+        return;
+      }
+
       inputBox.value = '';
       isThinking = true;
       sendBtn.disabled = true;
@@ -436,13 +492,17 @@
           body: JSON.stringify({ messages })
         });
 
-        if (!response.ok) throw new Error('API error');
-        const data = await response.json();
+        const data = await response.json().catch(() => ({}));
         const reply = data.reply || 'Connection issue. Reach out directly at akshaj.shah@tamu.edu.';
 
         hideTyping();
         messages.push({ role: 'assistant', content: reply });
         addMessage('assistant', reply);
+
+        if (response.ok) {
+          bumpMsg();                                   // count only successful answers
+          if (window.speakReply) window.speakReply(reply);  // make the face say it (no-op if video not started)
+        }
       } catch (err) {
         hideTyping();
         const errMsg = 'Connection issue. Please reach out directly at akshaj.shah@tamu.edu or +1 (979) 574-8398.';
@@ -452,6 +512,7 @@
         isThinking = false;
         sendBtn.disabled = false;
         inputBox.focus();
+        enforceLimitUI();
       }
     }
 
@@ -462,6 +523,65 @@
         sendMessage();
       }
     });
+
+    enforceLimitUI();   // disable input on load if the visitor already used their messages
+  </script>
+
+  <!-- ===== video avatar (HeyGen) — loads the SDK from a CDN, no build step ===== -->
+  <script type="module">
+    import StreamingAvatar, { AvatarQuality, StreamingEvents, TaskType }
+      from "https://esm.sh/@heygen/streaming-avatar";
+
+    let avatar = null;
+    const videoEl  = document.getElementById('avatarVideo');
+    const startBtn = document.getElementById('startAvatar');
+    const statusEl = document.getElementById('avatarStatus');
+
+    // Which avatar's face to use.
+    //  - For testing: paste a PUBLIC streaming avatar ID from app.heygen.com/streaming-avatar
+    //  - For YOUR face: create an Instant Avatar from a short video, upgrade it to a
+    //    Streaming Avatar, then paste its ID here.
+    const AVATAR_ID = "default";
+
+    startBtn.addEventListener('click', async () => {
+      if (avatar) return;
+      startBtn.disabled = true;
+      statusEl.textContent = '// CONNECTING…';
+      try {
+        const resp = await fetch('/api/avatar-token');
+        const { token } = await resp.json();
+        avatar = new StreamingAvatar({ token });
+
+        avatar.on(StreamingEvents.STREAM_READY, (e) => {
+          videoEl.srcObject = e.detail;
+          videoEl.classList.add('show');
+          videoEl.play().catch(() => {});
+          statusEl.textContent = '// LIVE';
+          startBtn.style.display = 'none';
+        });
+        avatar.on(StreamingEvents.STREAM_DISCONNECTED, () => {
+          videoEl.srcObject = null;
+          videoEl.classList.remove('show');
+          statusEl.textContent = '// DISCONNECTED';
+          avatar = null;
+          startBtn.style.display = '';
+          startBtn.disabled = false;
+        });
+
+        await avatar.createStartAvatar({ quality: AvatarQuality.Low, avatarName: AVATAR_ID });
+      } catch (err) {
+        console.error('Avatar start failed:', err);
+        statusEl.textContent = '// COULD NOT START — check key/credits';
+        startBtn.disabled = false;
+      }
+    });
+
+    // Speak a reply verbatim (TaskType.REPEAT) so the face says YOUR grounded answer.
+    window.speakReply = async function (text) {
+      if (!avatar || !text) return;
+      try { await avatar.speak({ text, taskType: TaskType.REPEAT }); }
+      catch (err) { console.error('speak failed:', err); }
+    };
   </script>
 </body>
 </html>
