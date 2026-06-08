@@ -76,6 +76,58 @@ Phone: +1 (979) 574-8398
 LinkedIn: linkedin.com/in/akshajs
 Location: College Station, Texas (open to remote or Palo Alto in-person)`;
 
+// ---- Fallback providers (OpenAI-compatible). Gemini stays in its native format below. ----
+// Set whichever keys you have in Vercel env vars. Free, no card: Groq / Cerebras / OpenRouter.
+// Model names drift — if one 404s, update that line from the provider's docs.
+const OPENAI_PROVIDERS = (env) => [
+  { name: 'groq',       url: 'https://api.groq.com/openai/v1/chat/completions',           key: env.GROQ_API_KEY,       model: 'llama-3.3-70b-versatile' },
+  { name: 'cerebras',   url: 'https://api.cerebras.ai/v1/chat/completions',               key: env.CEREBRAS_API_KEY,   model: 'llama-3.3-70b' },
+  { name: 'openrouter', url: 'https://openrouter.ai/api/v1/chat/completions',             key: env.OPENROUTER_API_KEY, model: 'meta-llama/llama-3.3-70b-instruct:free' },
+];
+
+// Primary: your original Gemini call, unchanged except the model (flash -> flash-lite for quota).
+async function callGemini(apiKey, contents, attempt = 0) {
+  const response = await fetch(
+    'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent',
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey },
+      body: JSON.stringify({
+        systemInstruction: { parts: [{ text: PROFILE }] },
+        contents,
+        generationConfig: { temperature: 0.7, maxOutputTokens: 1024 }
+      })
+    }
+  );
+  if (response.status === 429 && attempt === 0) {           // rate limited: retry once before failover
+    await new Promise(r => setTimeout(r, 1500));
+    return callGemini(apiKey, contents, 1);
+  }
+  if (!response.ok) throw new Error('gemini ' + response.status);
+  const data = await response.json();
+  const reply = data?.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
+  if (!reply) throw new Error('gemini empty');
+  return reply;
+}
+
+// Fallbacks: standard OpenAI-style chat completions.
+async function callOpenAI(p, messages, attempt = 0) {
+  const r = await fetch(p.url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${p.key}` },
+    body: JSON.stringify({ model: p.model, messages, max_tokens: 1024, temperature: 0.7 })
+  });
+  if (r.status === 429 && attempt === 0) {
+    await new Promise(res => setTimeout(res, 1500));
+    return callOpenAI(p, messages, 1);
+  }
+  if (!r.ok) throw new Error(p.name + ' ' + r.status);
+  const data = await r.json();
+  const reply = data?.choices?.[0]?.message?.content?.trim();
+  if (!reply) throw new Error(p.name + ' empty');
+  return reply;
+}
+
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
@@ -83,13 +135,6 @@ export default async function handler(req, res) {
 
   if (req.method === 'OPTIONS') return res.status(200).end();
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
-
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) {
-    return res.status(500).json({
-      reply: 'Service temporarily unavailable. Please reach out at akshaj.shah@tamu.edu.'
-    });
-  }
 
   try {
     const { messages } = req.body;
@@ -99,47 +144,43 @@ export default async function handler(req, res) {
 
     const trimmed = messages.slice(-20);
 
-    // Convert messages to Gemini's "contents" format
-    // Gemini uses "user" and "model" roles (not "assistant")
+    // Gemini native shape (user/model + systemInstruction).
     const contents = trimmed.map(m => ({
       role: m.role === 'assistant' ? 'model' : 'user',
       parts: [{ text: m.content }]
     }));
 
-    const response = await fetch(
-      'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent',
-      {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-goog-api-key': apiKey
-        },
-        body: JSON.stringify({
-          systemInstruction: {
-            parts: [{ text: PROFILE }]
-          },
-          contents: contents,
-          generationConfig: {
-            temperature: 0.7,
-            maxOutputTokens: 1024
-          }
-        })
-      }
-    );
+    // OpenAI-compatible shape for fallbacks (system message carries the profile).
+    const oaMessages = [
+      { role: 'system', content: PROFILE },
+      ...trimmed.map(m => ({ role: m.role === 'assistant' ? 'assistant' : 'user', content: m.content }))
+    ];
 
-    if (!response.ok) {
-      const errText = await response.text();
-      console.error('Gemini API error:', errText);
-      return res.status(500).json({
-        reply: 'Connection issue. Please reach out at akshaj.shah@tamu.edu.'
-      });
+    // 1) Try Gemini first (your original path).
+    const geminiKey = process.env.GEMINI_API_KEY;
+    if (geminiKey) {
+      try {
+        const reply = await callGemini(geminiKey, contents);
+        return res.status(200).json({ reply, provider: 'gemini' });
+      } catch (e) {
+        console.error('Gemini failed, falling over:', String(e));
+      }
     }
 
-    const data = await response.json();
-    const reply = data?.candidates?.[0]?.content?.parts?.[0]?.text?.trim()
-      || 'Could not generate a response. Please reach out at akshaj.shah@tamu.edu.';
+    // 2) Roll through fallback providers until one answers.
+    for (const p of OPENAI_PROVIDERS(process.env).filter(p => p.key)) {
+      try {
+        const reply = await callOpenAI(p, oaMessages);
+        return res.status(200).json({ reply, provider: p.name });
+      } catch (e) {
+        console.error(p.name + ' failed, falling over:', String(e));
+      }
+    }
 
-    return res.status(200).json({ reply });
+    // 3) Everything exhausted — your original graceful fallback.
+    return res.status(503).json({
+      reply: "I'm temporarily unavailable. Please reach Akshaj directly at akshaj.shah@tamu.edu."
+    });
   } catch (err) {
     console.error('Handler error:', err);
     return res.status(500).json({
