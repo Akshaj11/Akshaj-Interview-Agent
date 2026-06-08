@@ -9,8 +9,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@heygen/streaming-avatar": "2.1.0",
-    "livekit-client": "^2"
+    "@heygen/liveavatar-web-sdk": "0.0.18"
   },
   "devDependencies": {
     "vite": "^5.4.0"
