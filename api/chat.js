@@ -76,6 +76,19 @@ Phone: +1 (979) 574-8398
 LinkedIn: linkedin.com/in/akshajs
 Location: College Station, Texas (open to remote or Palo Alto in-person)`;
 
+// ---- Per-visitor cap (protects your credits) ----
+const REQUEST_LIMIT = 2;                   // max messages per visitor
+const WINDOW_MS = 24 * 60 * 60 * 1000;     // resets every 24 hours
+const hits = new Map();                    // ip -> { count, resetAt }
+function isRateLimited(ip) {
+  const now = Date.now();
+  const rec = hits.get(ip);
+  if (!rec || now > rec.resetAt) { hits.set(ip, { count: 1, resetAt: now + WINDOW_MS }); return false; }
+  if (rec.count >= REQUEST_LIMIT) return true;
+  rec.count += 1;
+  return false;
+}
+
 // ---- Fallback providers (OpenAI-compatible). Gemini stays in its native format below. ----
 // Set whichever keys you have in Vercel env vars. Free, no card: Groq / Cerebras / OpenRouter.
 // Model names drift — if one 404s, update that line from the provider's docs.
@@ -135,6 +148,14 @@ export default async function handler(req, res) {
 
   if (req.method === 'OPTIONS') return res.status(200).end();
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
+
+  // Per-visitor cap: stops one person from draining your credits.
+  const ip = (req.headers['x-forwarded-for'] || '').split(',')[0].trim() || 'unknown';
+  if (isRateLimited(ip)) {
+    return res.status(429).json({
+      reply: "Thanks for chatting! You've reached the demo limit. To continue, reach Akshaj directly at akshaj.shah@tamu.edu."
+    });
+  }
 
   try {
     const { messages } = req.body;
