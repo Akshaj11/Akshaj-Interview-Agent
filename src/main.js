@@ -1,7 +1,7 @@
-// src/main.js — bundled by Vite, so the SDK import resolves at build time (no CDN).
-import StreamingAvatar, { AvatarQuality, StreamingEvents, TaskType } from '@heygen/streaming-avatar';
+// src/main.js — grounded chat agent + per-visitor cap + LiveAvatar video face.
+import { LiveAvatarSession, SessionEvent } from '@heygen/liveavatar-web-sdk';
 
-// ===== elements =====
+// ===== chat elements =====
 const messages = [];
 const chatInner = document.getElementById('chatInner');
 const chatArea = document.getElementById('chatArea');
@@ -81,7 +81,6 @@ async function sendMessage() {
   const text = inputBox.value.trim();
   if (!text || isThinking) return;
 
-  // Per-visitor cap: stop after MAX_MESSAGES.
   if (atLimit()) {
     addMessage('assistant', "You've reached the demo limit. Reach Akshaj directly at akshaj.shah@tamu.edu.");
     enforceLimitUI();
@@ -113,7 +112,7 @@ async function sendMessage() {
 
     if (response.ok) {
       bumpMsg();          // count only successful answers
-      speakReply(reply);  // make the face say it (no-op if video not started)
+      speakReply(reply);  // make the video face say it (no-op if video not started)
     }
   } catch (err) {
     hideTyping();
@@ -136,59 +135,58 @@ inputBox.addEventListener('keydown', (e) => {
   }
 });
 
-enforceLimitUI();   // disable input on load if the visitor already used their messages
+enforceLimitUI();
 
-// ===== video avatar (HeyGen, bundled by Vite) =====
+// ===== video avatar (LiveAvatar) =====
 const videoEl  = document.getElementById('avatarVideo');
 const startBtn = document.getElementById('startAvatar');
 const statusEl = document.getElementById('avatarStatus');
 
-// Paste a PUBLIC streaming avatar ID from app.heygen.com/streaming-avatar (or your own).
-const AVATAR_ID = "Iker_public_1";
-const VOICE_ID  = "";   // optional — leave "" for the default voice
+let session = null;
 
-let avatar = null;
-
+// Speak our grounded reply verbatim through the avatar (no-op until started).
 async function speakReply(text) {
-  if (!avatar || !text) return;
-  try { await avatar.speak({ text, taskType: TaskType.REPEAT }); }
+  if (!session || !text) return;
+  try { session.repeat(text); }
   catch (err) { console.error('speak failed:', err); }
 }
 
 startBtn.addEventListener('click', async () => {
-  if (avatar) return;
+  if (session) return;
   startBtn.disabled = true;
   statusEl.textContent = '// CONNECTING…';
   try {
     const resp = await fetch('/api/avatar-token');
-    const { token } = await resp.json();
-    if (!token) { statusEl.textContent = '// NO TOKEN — check HEYGEN_API_KEY'; startBtn.disabled = false; return; }
+    const data = await resp.json().catch(() => ({}));
+    if (!data.token) {
+      statusEl.textContent = '// NO TOKEN — ' + (data.error || 'check LIVEAVATAR_API_KEY');
+      console.error('avatar-token response:', data);
+      startBtn.disabled = false;
+      return;
+    }
 
-    avatar = new StreamingAvatar({ token });
+    session = new LiveAvatarSession(data.token, { voiceChat: false });
 
-    avatar.on(StreamingEvents.STREAM_READY, (e) => {
-      videoEl.srcObject = e.detail;
+    session.on(SessionEvent.SESSION_STREAM_READY, () => {
+      statusEl.textContent = '// LIVE';
       videoEl.classList.add('show');
       videoEl.play().catch(() => {});
-      statusEl.textContent = '// LIVE';
       startBtn.style.display = 'none';
     });
-    avatar.on(StreamingEvents.STREAM_DISCONNECTED, () => {
-      videoEl.srcObject = null;
-      videoEl.classList.remove('show');
+    session.on(SessionEvent.SESSION_DISCONNECTED, () => {
       statusEl.textContent = '// DISCONNECTED';
-      avatar = null;
+      videoEl.classList.remove('show');
+      session = null;
       startBtn.style.display = '';
       startBtn.disabled = false;
     });
 
-    const startReq = { quality: AvatarQuality.Low, avatarName: AVATAR_ID };
-    if (VOICE_ID) startReq.voice = { voiceId: VOICE_ID };
-    await avatar.createStartAvatar(startReq);
+    session.attach(videoEl);   // bind the avatar's audio + video to the <video> element
+    await session.start();
   } catch (err) {
     console.error('Avatar start failed:', err);
     statusEl.textContent = '// COULD NOT START — open console (F12)';
-    avatar = null;
+    session = null;
     startBtn.disabled = false;
   }
 });
