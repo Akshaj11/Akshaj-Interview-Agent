@@ -500,8 +500,8 @@
         addMessage('assistant', reply);
 
         if (response.ok) {
-          bumpMsg();                                   // count only successful answers
-          if (window.speakReply) window.speakReply(reply);  // make the face say it (no-op if video not started)
+          bumpMsg();                                       // count only successful answers
+          if (window.speakReply) window.speakReply(reply); // make the face say it (no-op if video not started)
         }
       } catch (err) {
         hideTyping();
@@ -527,29 +527,44 @@
     enforceLimitUI();   // disable input on load if the visitor already used their messages
   </script>
 
-  <!-- ===== video avatar (HeyGen) — loads the SDK from a CDN, no build step ===== -->
+  <!-- ===== video avatar (HeyGen) — jsDelivr loader, no build step ===== -->
   <script type="module">
-    import StreamingAvatar, { AvatarQuality, StreamingEvents, TaskType }
-      from "https://esm.sh/@heygen/streaming-avatar";
-
-    let avatar = null;
     const videoEl  = document.getElementById('avatarVideo');
     const startBtn = document.getElementById('startAvatar');
     const statusEl = document.getElementById('avatarStatus');
 
-    // Which avatar's face to use.
-    //  - For testing: paste a PUBLIC streaming avatar ID from app.heygen.com/streaming-avatar
-    //  - For YOUR face: create an Instant Avatar from a short video, upgrade it to a
-    //    Streaming Avatar, then paste its ID here.
+    // Paste a PUBLIC streaming avatar ID from app.heygen.com/streaming-avatar (or your own).
     const AVATAR_ID = "Iker_public_1";
+    const VOICE_ID  = "117821d0abb146e89cc2a2e99f65d807";   // optional — leave "" for the default voice
 
+    let avatar = null;
+    let TaskTypeRef = null;
+
+    // Always-available speak function (no-op until the avatar is live).
+    window.speakReply = async function (text) {
+      if (!avatar || !text || !TaskTypeRef) return;
+      try { await avatar.speak({ text, taskType: TaskTypeRef.REPEAT }); }
+      catch (err) { console.error('speak failed:', err); }
+    };
+
+    // Listener attached immediately, so the button is never dead.
     startBtn.addEventListener('click', async () => {
       if (avatar) return;
       startBtn.disabled = true;
-      statusEl.textContent = '// CONNECTING…';
+      statusEl.textContent = '// LOADING…';
       try {
+        // jsDelivr bundles the livekit-client dependency in (this is what esm.sh 404'd on).
+        const mod = await import('https://cdn.jsdelivr.net/npm/@heygen/streaming-avatar@2.1.1/+esm');
+        // If this ever fails too, swap the line above for: 'https://esm.run/@heygen/streaming-avatar'
+        const StreamingAvatar = mod.default;
+        const { AvatarQuality, StreamingEvents, TaskType } = mod;
+        TaskTypeRef = TaskType;
+
+        statusEl.textContent = '// CONNECTING…';
         const resp = await fetch('/api/avatar-token');
         const { token } = await resp.json();
+        if (!token) { statusEl.textContent = '// NO TOKEN — check HEYGEN_API_KEY'; startBtn.disabled = false; return; }
+
         avatar = new StreamingAvatar({ token });
 
         avatar.on(StreamingEvents.STREAM_READY, (e) => {
@@ -568,20 +583,16 @@
           startBtn.disabled = false;
         });
 
-        await avatar.createStartAvatar({ quality: AvatarQuality.Low, avatarName: AVATAR_ID });
+        const startReq = { quality: AvatarQuality.Low, avatarName: AVATAR_ID };
+        if (VOICE_ID) startReq.voice = { voiceId: VOICE_ID };
+        await avatar.createStartAvatar(startReq);
       } catch (err) {
         console.error('Avatar start failed:', err);
-        statusEl.textContent = '// COULD NOT START — check key/credits';
+        statusEl.textContent = '// COULD NOT START — open console (F12)';
+        avatar = null;
         startBtn.disabled = false;
       }
     });
-
-    // Speak a reply verbatim (TaskType.REPEAT) so the face says YOUR grounded answer.
-    window.speakReply = async function (text) {
-      if (!avatar || !text) return;
-      try { await avatar.speak({ text, taskType: TaskType.REPEAT }); }
-      catch (err) { console.error('speak failed:', err); }
-    };
   </script>
 </body>
 </html>
