@@ -143,10 +143,11 @@ const startBtn = document.getElementById('startAvatar');
 const statusEl = document.getElementById('avatarStatus');
 
 let session = null;
+let streamReady = false;
 
-// Speak our grounded reply verbatim through the avatar (no-op until started).
+// Speak our grounded reply verbatim through the avatar.
 async function speakReply(text) {
-  if (!session || !text) return;
+  if (!session || !text || !streamReady) return;   // wait until the stream is live
   try { session.repeat(text); }
   catch (err) { console.error('speak failed:', err); }
 }
@@ -168,21 +169,25 @@ startBtn.addEventListener('click', async () => {
     session = new LiveAvatarSession(data.token, { voiceChat: false });
 
     session.on(SessionEvent.SESSION_STREAM_READY, () => {
-      statusEl.textContent = '// LIVE';
+      // Tracks now exist — THIS is the only safe place to attach them.
+      session.attach(videoEl);          // binds avatar video + audio to the <video>
+      streamReady = true;
       videoEl.classList.add('show');
+      videoEl.muted = false;            // ensure audio is on
       videoEl.play().catch(() => {});
+      statusEl.textContent = '// LIVE';
       startBtn.style.display = 'none';
     });
     session.on(SessionEvent.SESSION_DISCONNECTED, () => {
       statusEl.textContent = '// DISCONNECTED';
       videoEl.classList.remove('show');
+      streamReady = false;
       session = null;
       startBtn.style.display = '';
       startBtn.disabled = false;
     });
 
-    session.attach(videoEl);   // bind the avatar's audio + video to the <video> element
-    await session.start();
+    await session.start();              // attach happens later, on STREAM_READY
   } catch (err) {
     console.error('Avatar start failed:', err);
     statusEl.textContent = '// COULD NOT START — open console (F12)';
